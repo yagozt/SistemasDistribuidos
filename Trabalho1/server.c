@@ -27,7 +27,6 @@ void enviarMensagem(char*, int);
 void enviarMensagemTodos(char*);
 void deletarClient(int);
 void adicionarClient(int);
-void saidaForcada(int);
 
 void error(char *msg)
 {
@@ -167,8 +166,4 @@ void enviarMensagemTodos(char *s){
 			write(newsockfd[i], s, strlen(s));
 		}
 	}
-}
-
-void saidaForcada(int signo) {
-    write(sockfd, "bye", strlen("bye"));
 }
