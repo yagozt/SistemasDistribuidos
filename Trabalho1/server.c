@@ -7,73 +7,93 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
 #include <unistd.h>
+
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#include <pthread.h>
+
+#include <signal.h>
+
+#define MAX_CLIENTS	5
+
 void dostuff(int); /* function prototype */
-void fecharSocket(int);
 int inicializaSocket(int);
+void* trataCliente(int);
+void enviarMensagem(char*, int);
+void enviarMensagemTodos(char*);
+void deletarClient(int);
+void adicionarClient(int);
+void saidaForcada(int);
+
 void error(char *msg)
 {
     perror(msg);
     exit(1);
 }
 
+int newsockfd[5] = { -1, -1, -1, -1, -1};
+int sockfd;
+
 int main(int argc, char *argv[])
 {
-     int sockfd, newsockfd, portno, clilen, pid;
-     struct sockaddr_in cli_addr;
+    
+    pthread_t thread_listen;
+    int newsock, portno, clilen;
+    struct sockaddr_in cli_addr;
 
-     if (argc < 2) {
-         fprintf(stderr,"ERROR, no port provided\n");
-         exit(1);
-     }
-     portno = atoi(argv[1]);
+    if (argc < 2) {
+        fprintf(stderr,"ERROR, no port provided\n");
+        exit(1);
+    }
+    portno = atoi(argv[1]);
 
-     sockfd = inicializaSocket(portno);
+    sockfd = inicializaSocket(portno);
 
-     listen(sockfd,5);
-     clilen = sizeof(cli_addr);
+    listen(sockfd,5);
+    clilen = sizeof(cli_addr);
 
-     while (1) {
-         newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-         if (newsockfd < 0) 
+    printf("----------------SERVER INICIADO----------------");
+
+    while (1) {
+        clilen = sizeof(cli_addr);
+
+        newsock = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+        if (newsock < 0) 
             error("ERROR on accept");
-         pid = fork();
-         if (pid < 0)
-            error("ERROR on fork");
-         if (pid == 0)  {
-            close(sockfd);
-            dostuff(newsockfd);
-            exit(0);
-         }
-         else close(newsockfd);
-     } /* end of while */
-     return 0; /* we never get here */
+
+        adicionarClient(newsock);
+
+        pthread_create(&thread_listen, NULL, &trataCliente, newsock);
+
+        sleep(1);
+    } /* end of while */
+    return 0; /* we never get here */
 }
 
-/******** DOSTUFF() *********************
- There is a separate instance of this function 
- for each connection.  It handles all communication
- once a connnection has been established.
- *****************************************/
-void dostuff (int sock)
-{
-   int n;
-   char buffer[256];
-      
-   memset(buffer,0,256);
-   n = read(sock,buffer,255);
-   if (n < 0) error("ERROR reading from socket");
-   printf("Here is the message: %s\n",buffer);
-   n = write(sock,"I got your message",18);
-   if (n < 0) error("ERROR writing to socket");
+void adicionarClient(int newsock){
+    int i;
+    
+    for(i=0;i<MAX_CLIENTS;i++){
+        if(newsockfd[i] == -1) {
+            newsockfd[i] = newsock;
+            return;
+        }
+    }
 }
 
-void fecharSocket(int sock){
-    close(sock);
+void deletarClient(int sock){
+    int i;
+	for(i=0;i<MAX_CLIENTS;i++){
+		if(newsockfd[i] == sock){
+            newsockfd[i] = -1;
+            return;
+		}
+	}
+    
 }
 
 int inicializaSocket(int portno){
@@ -91,4 +111,64 @@ int inicializaSocket(int portno){
         error("ERROR on binding");
 
     return sockfd;
+}
+
+void *trataCliente(int client){
+    char buffer_in[256];
+    char buffer_out[256];
+    int n;
+
+    sprintf(buffer_out, "Cliente %d entrou na sala.\r\n", client);
+    enviarMensagemTodos(buffer_out);
+    n = read(client,buffer_in,255);    
+    if (n < 0) 
+        error("ERROR reading from socket");
+
+    while(memcmp(buffer_in,"bye",strlen("bye"))!=0){
+        buffer_in[n] = '\0'; /* Limpar cache das mensagens. */
+        buffer_out[0] = '\0';
+
+        sprintf(buffer_out, "[%d] %s\r\n", client, buffer_in);
+        enviarMensagem(buffer_out, client);
+
+        n = read(client,buffer_in,255);
+        if (n < 0) 
+            error("ERROR reading from socket");
+    }
+
+    write(client, "bye", strlen("bye"));
+    close(client);
+    sprintf(buffer_out, "Cliente %d saiu.\r\n", client);
+    enviarMensagem(buffer_out, client);
+    deletarClient(client);
+
+    pthread_detach(pthread_self());
+
+    return NULL;    
+}
+
+/* Envia mensagem para todos os clientes exceto o que está enviando. */
+void enviarMensagem(char *s, int client){
+	int i;
+	for(i=0;i<MAX_CLIENTS;i++){
+		if(newsockfd[i] != - 1){
+			if(newsockfd[i] != client){
+				write(newsockfd[i], s, strlen(s));
+			}
+		}
+	}
+}
+
+/* Envia mensagem para todos os clientes. */
+void enviarMensagemTodos(char *s){
+    int i;
+	for(i=0;i<MAX_CLIENTS;i++){
+		if(newsockfd[i] != -1){
+			write(newsockfd[i], s, strlen(s));
+		}
+	}
+}
+
+void saidaForcada(int signo) {
+    write(sockfd, "bye", strlen("bye"));
 }

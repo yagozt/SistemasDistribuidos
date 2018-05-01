@@ -9,7 +9,14 @@
 #include <netinet/in.h>
 #include <netdb.h> 
 
+#include <pthread.h>
+
+#include <signal.h>
+
 int conectarSocket(int, char*);
+void* enviarMsg(int);
+void* lerMsg(int);
+void saidaForcada(int);
 
 void error(char *msg)
 {
@@ -17,11 +24,16 @@ void error(char *msg)
     exit(0);
 }
 
+
+
+int sockfd;
+
 int main(int argc, char *argv[])
 {
-    int sockfd, portno, n;
+    int portno;
+    pthread_t thread_a, thread_b;
+    void* retval;
 
-    char buffer[256];
     if (argc < 3) {
        fprintf(stderr,"usage %s hostname port\n", argv[0]);
        exit(0);
@@ -29,25 +41,58 @@ int main(int argc, char *argv[])
     portno = atoi(argv[2]);
 
     sockfd = conectarSocket(portno, argv[1]);
-    
+
+    signal(2, saidaForcada);
+
     while (1){
-        printf("Please enter the message: ");
+        printf("Inicializando client.\n");
+        pthread_create(&thread_a, NULL, enviarMsg, sockfd);
+        pthread_create(&thread_b, NULL, lerMsg, sockfd);
+
+        pthread_join(thread_a, &retval);
+        pthread_join(thread_b, &retval);
+        close(sockfd);
+        printf("Terminou.\n");
+        return 0;      
+        
+    }
+}
+
+void* enviarMsg(int sock){
+    char buffer[256];
+    int n;
+
+    while (1){
+        /*if (signal(SIGINT, saidaForcada) != SIG_ERR) {
+            n = write(sock, "bye", strlen("bye"));
+            if (n < 0) 
+                error("ERROR writing to socket");
+            return 0;
+        }*/
         memset(buffer, 0, 256);
         fgets(buffer, 255, stdin);
-        n = write(sockfd, buffer, strlen(buffer));
+        n = write(sock, buffer, strlen(buffer));
         if (n < 0) 
             error("ERROR writing to socket");
+        if(memcmp(buffer, "bye", strlen("bye")) == 0)
+            return 0;
+            
+    }
+}
+
+void* lerMsg(int sock){
+    char buffer[256];
+    int n;
+    
+    while(1){
         memset(buffer, 0, 256);
-        n = read(sockfd, buffer, 255);
+        n = read(sock, buffer, 255);
         if (n < 0) 
             error("ERROR reading from socket");
+
         printf("%s\n",buffer);
-        if (memcmp(buffer, "bye", strlen("bye")) == 0) {
-            close(sockfd);
+        if(memcmp(buffer, "bye", strlen("bye")) == 0)
             return 0;
-        }
-            
-        
     }
 }
 
@@ -72,4 +117,8 @@ int conectarSocket(int portno, char *argvServer){
         error("ERROR connecting");
     
     return sockfd;
+}
+
+void saidaForcada(int signo) {
+    write(sockfd, "bye", strlen("bye"));
 }
