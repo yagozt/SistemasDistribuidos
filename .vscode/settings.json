@@ -3,5 +3,7 @@
         "stdlib.h": "c",
         "time.h": "c",
         "types.h": "c"
-    }
+    },
+    "terminal.integrated.shell.windows": "C:\\WINDOWS\\System32\\bash.exe"
 }
+
